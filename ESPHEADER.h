@@ -11,6 +11,7 @@
 #include <AsyncTCP.h>
 #include <HTTPClient.h>
 #include <Adafruit_INA219.h>
+#include "driver/adc.h"
 extern "C" {
   #include "freertos/FreeRTOS.h"
   #include "freertos/timers.h"

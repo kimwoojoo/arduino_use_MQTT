@@ -6,9 +6,10 @@ const int TempPin = 5;
 class Data{
   public :
   float distance;
-  int tlurbidity;
+  float tlurbidity;
   float Volt;
   float temperature;
+  float Waterquality;
   int trigPin;
   int echoPin;
   int RelayPin;
@@ -18,8 +19,8 @@ class Data{
   int RelayFanPin;
   String DiviceChip;
   String ip;
-  String State;
-  String ServerState;
+  String FANState;
+  String MotorState;
   int VoltageSDAPin;
   int VoltageSCLPin;
   public :
@@ -33,7 +34,7 @@ class Data{
      OledSCKPin = 22;
      VoltageSDAPin = 23;
      VoltageSCLPin = 19;
-     RelayFanPin = 16;
+     RelayFanPin = 4;
   }
   ~Data()
   {
@@ -41,12 +42,13 @@ class Data{
   
   void PinSet();
   float getDistance();
-  int getTlurbidity();
+  float getTlurbidity();
   float getVolt();
+  float getWaterquality();
   float getTemperature();
-  String getState();
+  String getFANState();
   String getIp();
-  String getServerState();
+  String getMotorState();
   String getDiviceChip();
 };
 #endif

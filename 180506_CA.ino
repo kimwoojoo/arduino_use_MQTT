@@ -1,4 +1,3 @@
-
 #include "ESPHEADER.h"
 #include <pthread.h>
 uint64_t chipID; 
@@ -7,8 +6,8 @@ Data DataSet;
 SSD1306Wire  display(0x3c, DataSet.OledSDAPin, DataSet.OledSCKPin);
 OneWire ds(TempPin);
 
-const char* ssid = "Kip";
-const char* password =  "dnwn1217!";
+const char* ssid = "KimCGAC";
+const char* password =  "cgac5336";
 const char* ca_cert = \
 "-----BEGIN CERTIFICATE-----\n"\
 "MIIDpzCCAo+gAwIBAgIJANgOMi/sVJVVMA0GCSqGSIb3DQEBDQUAMGoxFzAVBgNV\n"\
@@ -48,18 +47,19 @@ TimerHandle_t wifiReconnectTimer;
 void connectToWifi() {
   Serial.println("Connecting to Wi-Fi...");
   WiFi.begin(ssid, password);
+  
   server.on("/index.html", HTTP_GET, [](AsyncWebServerRequest *request)
   {
     GetState();
     request->send(200, "HTTP/1.1 200 OK\nContent-type:text/html\n<meta charset=\"utf-8\">", HeadScript() +
-    "<body>" +"칩 아이디 "+ DataSet.getDiviceChip() + "아이피 정보 " + DataSet.getIp() + "모터 상태 " + DataSet.getServerState() + AutoSubmit() + formPrint() + DATAPrint() + "</body>");
+    "<body>" +"칩 아이디 "+ DataSet.getDiviceChip() + "아이피 정보 " + DataSet.getIp() + "모터 상태 " + DataSet.getMotorState() + AutoSubmit() + formPrint() + "</body>");
   });
-
+/*
    server.on("/on", HTTP_GET, [](AsyncWebServerRequest *request)
   {
     request->send(200, "HTTP/1.1 200 OK\nContent-type:text/html\n<meta charset=\"utf-8\">", HeadScript() +
-    "<body>" +" "+ DataSet.getDiviceChip() + "아이피 정보 " + DataSet.getIp() + "모터 상태 " + DataSet.getServerState() + AutoSubmit() + formPrint() + DATAPrint() + "</body>");
-  });
+    "<body>" +" "+ DataSet.getDiviceChip() + "아이피 정보 " + DataSet.getIp() + "모터 상태 " + DataSet.getMotorState() + AutoSubmit() + formPrint() + "</body>");
+  });*/
   server.begin();
 }
 
@@ -95,7 +95,6 @@ char* string2char(String command){
 
 
 void onMqttConnect(bool sessionPresent) {
-
   Serial.println("Connected to MQTT.");
   Serial.print("Session present: ");
   Serial.println(sessionPresent);
@@ -103,11 +102,6 @@ void onMqttConnect(bool sessionPresent) {
   Serial.print("Subscribing at QoS 2, packetId: ");
   Serial.println(packetIdSub);
   Serial.println(string2char(DataSet.ip));
-  mqttClient.publish("esp32", 0, true, string2char(MSGPrint));
-  Serial.println("Publishing at QoS 0");
-  uint16_t packetIdPub1 = mqttClient.publish("esp32", 1, true, "test 2");
-  Serial.print("Publishing at QoS 1, packetId: ");
-  Serial.println(packetIdPub1);
   uint16_t packetIdPub2 = mqttClient.publish("esp32", 2, true, string2char(MSGPrint));
   Serial.print("Publishing at QoS 2, packetId: ");
   Serial.println(packetIdPub2);
@@ -131,23 +125,70 @@ void onMqttUnsubscribe(uint16_t packetId) {
   Serial.print("  packetId: ");
   Serial.println(packetId);
 }
+
+void StateSwitch(String MQTTMESSAGE)
+{
+  //MQTTMESSAGE.length();
+  
+  if(MQTTMESSAGE.substring(12,17).compareTo("FANON") == 0)
+  {
+    DataSet.FANState = "1";
+    FANSwitch(1);
+    Serial.println(MQTTMESSAGE.substring(12,17));
+  }
+    
+  else if(MQTTMESSAGE.substring(12,18).compareTo("FANOFF") == 0)
+  {
+    DataSet.FANState = "0";
+    FANSwitch(0);
+    Serial.println(MQTTMESSAGE.substring(12,18));
+  }
+  else if(MQTTMESSAGE.substring(12,19).compareTo("MOTORON") == 0)
+  {
+    DataSet.MotorState = "1";
+    MOTORSwitch(1);
+    Serial.println(MQTTMESSAGE.substring(12,19));
+  }
+  else if(MQTTMESSAGE.substring(12,20).compareTo("MOTOROFF") == 0)
+  {
+    DataSet.MotorState = "0";
+    MOTORSwitch(0);
+    Serial.println(MQTTMESSAGE.substring(12,20));
+  }
+
+}
+
+void FANSwitch(int STATE)
+{
+  digitalWrite(DataSet.RelayFanPin, STATE);
+}
+
+void MOTORSwitch(int STATE)
+{
+  digitalWrite(DataSet.RelayPin, STATE);
+}
+
+
 //MQTT MESSAGE 받는것 ^^
 void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties properties, size_t len, size_t index, size_t total) {
   Serial.println("Publish received.");
   Serial.print("  topic: ");
   Serial.println(topic);
   Serial.print(" payload: ");
-  if(!strncmp(payload,"ON",2))
+  String payLoadTemp;
+
+  payLoadTemp += payload;
+
+  payLoadTemp.trim();
+
+  //esp32 chipid랑 서버에서 보낸 message 속의 chipid가 같으면 동작 
+
+  if(payLoadTemp.substring(0, 12).compareTo(DataSet.getDiviceChip()) == 0)
   {
-    DataSet.ServerState = "1";
-    Serial.println(DataSet.ServerState);
+    StateSwitch(payLoadTemp);
   }
-  else if(!strncmp(payload,"OFF",3))
-  {
-    DataSet.ServerState = "0";
-    Serial.println(DataSet.ServerState);
-  }
-  Serial.print(payload);
+
+  Serial.println(payLoadTemp);
   Serial.print("  qos: ");
   Serial.println(properties.qos);
   Serial.print("  dup: ");
@@ -212,7 +253,7 @@ void setup()
   {
     GetState();
     request->send(200, "HTTP/1.1 200 OK\nContent-type:text/html\n<meta charset=\"utf-8\">", HeadScript() +
-    "<body>" +"칩 아이디 "+ DataSet.getDiviceChip() + "아이피 정보 " + DataSet.getIp() + "모터 상태 " + DataSet.getServerState() + AutoSubmit() + formPrint() + DATAPrint() + "</body>");
+    "<body>" +"칩 아이디 "+ DataSet.getDiviceChip() + "아이피 정보 " + DataSet.getIp() + "모터 상태 " + DataSet.getMotorState() + AutoSubmit() + formPrint() + DATAPrint() + "</body>");
   });
 
   display.clear();
@@ -223,20 +264,26 @@ void setup()
 void Send_MQTTMSG()
 {
   MSGPrint="{\"Distance\":";
-  MSGPrint += "\"";
+  MSGPrint += "";
   MSGPrint +=DataSet.getDistance();
-  MSGPrint +="\",";
-  MSGPrint +="\"Temp\":\"";
+  MSGPrint +=",";
+  MSGPrint +="\"Temp\":";
   MSGPrint +=DataSet.getTemperature();
-  MSGPrint +="\",";
-  MSGPrint +="\"Turbidity\":\"";
+  MSGPrint +=",";
+  MSGPrint +="\"Turbidity\":";
   MSGPrint +=DataSet.getVolt();
-  MSGPrint +="\",";
+  MSGPrint +=",";
+  MSGPrint +="\"Waterquality\":";
+  MSGPrint +=DataSet.getWaterquality();
+  MSGPrint +=",";
   MSGPrint +="\"chipid\":\"";
   MSGPrint +=DataSet.getDiviceChip();
   MSGPrint +="\",";
-  MSGPrint +="\"State\":\"";
-  MSGPrint +=DataSet.getServerState();
+  MSGPrint +="\"MOTORState\":\"";
+  MSGPrint +=DataSet.getMotorState();
+  MSGPrint +="\",";
+  MSGPrint +="\"FANState\":\"";
+  MSGPrint +=DataSet.getFANState();
   MSGPrint +="\",";
   MSGPrint +="\"IPAdress\":\"";
   MSGPrint += DataSet.getIp();
@@ -254,7 +301,7 @@ void setup() {
   unsigned long long3 = (unsigned long)((chipID & 0x00000000FFFF));
   DataSet.DiviceChip = String(long1, HEX) + String(long2, HEX) + String(long3, HEX);
   DataSet.DiviceChip.toUpperCase(); 
-  GetState();
+  //GetState();
   mqttReconnectTimer = xTimerCreate("mqttTimer", pdMS_TO_TICKS(2000), pdFALSE, (void*)0, reinterpret_cast<TimerCallbackFunction_t>(connectToMqtt));
   wifiReconnectTimer = xTimerCreate("wifiTimer", pdMS_TO_TICKS(2000), pdFALSE, (void*)0, reinterpret_cast<TimerCallbackFunction_t>(connectToWifi));
   WiFi.onEvent(WiFiEvent);
@@ -265,8 +312,16 @@ void setup() {
   mqttClient.onMessage(onMqttMessage);
   mqttClient.onPublish(onMqttPublish);
   mqttClient.setServer(MQTT_HOST, MQTT_PORT);
-
   connectToWifi();
+  adc1_config_width(ADC_WIDTH_12Bit);
+  adc1_config_channel_atten(ADC1_CHANNEL_0,ADC_ATTEN_11db);
+  display.init();
+  display.flipScreenVertically();
+  display.setFont(ArialMT_Plain_10);
+  display.setContrast(255);
+  display.clear();
+  DataSet.MotorState ="0";
+  DataSet.FANState = "0";
 }
 void GetState()
 {
@@ -274,12 +329,12 @@ void GetState()
   http.GET();
   DataSet.ip = http.getString();  
   http.end();
+  /*
   http.begin("http://115.68.228.55/GetEspState.php/?chipid="+DataSet.getDiviceChip());
   http.GET();
-  DataSet.ServerState = http.getString();
-  http.end();
+  DataSet.MotorState = http.getString();
+  http.end();*/
 }
-
 void CurrentSensorPrint()
 {
  float shuntvoltage = 0;
@@ -298,38 +353,7 @@ void CurrentSensorPrint()
   Serial.print("Current:       "); Serial.print(current_mA); Serial.println(" mA");   //전류 출력
   Serial.println("");
 }
-String DATAPrint()
-{
-  String HTMLPrint= "Water ";
-  HTMLPrint +=DataSet.getDistance();
-  if(DataSet.State.equals("0"))
-  {    
-    HTMLPrint+="낮은 수위";
-  }
-  else if(DataSet.State.equals("1"))
-  {
-    HTMLPrint+="높은 수위";
-  }
-  else
-  {
-    HTMLPrint+="적당한 수위";
-  }
-  HTMLPrint +="<br>";
-  HTMLPrint +="Temperature";
-  HTMLPrint +=DataSet.getTemperature();
-  HTMLPrint +="<br>";
-  HTMLPrint +="Turbidity";
-  HTMLPrint +=DataSet.getVolt();
-  HTMLPrint +="<br>";
-  HTMLPrint +=DataSet.getDiviceChip();
-  HTMLPrint +="<br>";
-  HTMLPrint +="Local IP:"+WiFi.localIP().toString();
-  HTMLPrint +="<br>";
-  HTMLPrint +="Authorized IP:"+ DataSet.getIp();
-  HTMLPrint +="<br>";
-  HTMLPrint += "<p id = \"demo\"></p>";
-  return HTMLPrint;
-}
+
 String ControlPrint()
 {
   String HTMLPrint = "<script type=\"text/javascript\">";
@@ -430,10 +454,10 @@ String formPrint()
   HTMLPrint +=DataSet.getDiviceChip();
   HTMLPrint +="\">";
   HTMLPrint +="<input type = \"text\" name = \"State\" value = \"";
-  HTMLPrint +=DataSet.getState();
+  HTMLPrint +=DataSet.getFANState();
   HTMLPrint +="\">";
   HTMLPrint +="<input type = \"text\" name = \"State\" value = \"";
-  HTMLPrint +=DataSet.getServerState();
+  HTMLPrint +=DataSet.getMotorState();
   HTMLPrint +="\">";
   HTMLPrint +="<input type = \"text\" name = \"IPA\" value = \"";
   HTMLPrint += DataSet.getIp();
@@ -449,102 +473,43 @@ int demoLength = (sizeof(demos) / sizeof(Demo));
 long timeSinceLastModeSwitch = 0;
 void loop()
 {
-  Send_MQTTMSG();
-  //digitalWrite(DataSet.RelayFanPin, HIGH); 
-  //delay(3000);
-  //digitalWrite(DataSet.RelayFanPin, LOW);
-  delay(5000);
-  /*
   display.clear();
   demos[0]();
-  float Volt;
+  float Voltage;
   //CurrentSensorPrint();
   float TempRaTure = getTemp();
   //float Tempdistance = getDistance();
   DataSet.distance = getDistance();
-  int sensorValue = analogRead(A0);
-  Volt = sensorValue * ( 5.0 / 1024.0) ; 
-  Serial.println(Volt);
-  delay(500);
+  int sensorValue = adc1_get_voltage(ADC1_CHANNEL_0);
+  Voltage = sensorValue * ( 5.0 / 1024.0) ; 
+  
+  DataSet.Volt = Voltage;
+
   if(!(TempRaTure < -50 || TempRaTure > 100))
   {
     DataSet.temperature = TempRaTure;
   }
-  //저수위 일 경우
-  if(DataSet.getDistance() > 23)
-  {
-    DataSet.State = "0";
-  }
-  //고수위 일 경우
-  else if(DataSet.getDistance() < 5 )
-  {
-    DataSet.State = "1";
-  }
-  else 
-  {
-    DataSet.State = "2";  
-    }
-
   display.setTextAlignment(TEXT_ALIGN_RIGHT);
   display.drawString(10, 128, String(millis()));
   // write the buffer to the display
   display.display();
-  /*
   if (millis() - timeSinceLastModeSwitch > DEMO_DURATION) {
     demoMode = (demoMode + 1)  % demoLength;
     timeSinceLastModeSwitch = millis();
   }
-*/
-/*
   //물 높이(liter) 재기 
-  DataSet.distance = floor(Calc * Tempdistance * 10);
-
+  //DataSet.distance = floor(Calc * Tempdistance * 10);
+  //DataSet.distance = getDistance();
   
-  DataSet.distance = getDistance();
-  if (DataSet.ServerState.equals("1")) 
-  {
-    if(Tempdistance < 10)
-    {
-      DataSet.State = "1";
-      digitalWrite(DataSet.RelayPin, HIGH);               // GET /H turns the Motor on
-    }
-    else if(Tempdistance > 100)
-    {
-      DataSet.State = "0";
-      digitalWrite(DataSet.RelayPin, LOW);               // GET /H turns the Motor on
-    }
-    else if((Tempdistance > 10) && (Tempdistance <= 100))
-    {
-      DataSet.State = "1";
-      digitalWrite(DataSet.RelayPin, HIGH);               // GET /H turns the Motor on
-    }
-  }
-   else if (DataSet.ServerState.equals("0")) 
-   {
-    if(Tempdistance < 10)
-    {
-      DataSet.State = "1";
-      digitalWrite(DataSet.RelayPin, HIGH);               // GET /H turns the Motor on
-    }
-    else if(Tempdistance > 100)
-    {
-      DataSet.State = "0";
-      digitalWrite(DataSet.RelayPin, LOW);                // GET /L turns the Motor off 
-    }
-    else if((Tempdistance > 10) && (Tempdistance<= 100))
-    {
-      DataSet.ServerState = "1";
-      DataSet.State = "0";
-      digitalWrite(DataSet.RelayPin, LOW);               // GET /H turns the Motor on
-    }
-    }
-*/
+  Send_MQTTMSG();
+  delay(5000);
+  
 
-//DataSet.ServerState 모터 동작 상태 0이면 OFF
+//DataSet.MotorState 모터 동작 상태 0이면 OFF
 //DataSet.State 수위 상태 0 이면 저수위
 //서버 동작 신호가 1이고 저수위 일경우 동작
   
-  //if (DataSet.ServerState.equals("1")) 
+  //if (DataSet.MotorState.equals("1")) 
  // {
   //    digitalWrite(DataSet.RelayPin, HIGH);               // GET /H turns the Motor on
  // }
@@ -552,7 +517,7 @@ void loop()
   //{
   //  digitalWrite(DataSet.RelayPin, HIGH);               // GET /H turns the Motor on
  // }
-  //if (DataSet.ServerState.equals("0")) 
+  //if (DataSet.MotorState.equals("0")) 
   //{
   //    digitalWrite(DataSet.RelayPin, LOW);               // GET /H turns the Motor on
  // }
@@ -560,11 +525,8 @@ void loop()
   //{
   //  digitalWrite(DataSet.RelayPin, LOW);               // GET /H turns the Motor on
  // }
-  
-
-
- 
 }
+
 /*
 String SplitIp(String HostIp)
 {
@@ -651,14 +613,13 @@ void drawFontFaceDemo() {
     display.setFont(ArialMT_Plain_10);
     display.drawString(0, 0, WiFi.localIP().toString() );
     display.setFont(ArialMT_Plain_10);
-    display.drawString(0, 10, DataSet.getIp());
+    display.drawString(0, 5, DataSet.getIp());
     display.setFont(ArialMT_Plain_10);
-    display.drawString(0, 20, DataSet.getServerState());
+    display.drawString(0, 25, DataSet.getMotorState());
     display.setFont(ArialMT_Plain_10);
-    display.drawString(0, 30, DataSet.getDiviceChip());
+    display.drawString(0, 35, DataSet.getDiviceChip());
     display.setFont(ArialMT_Plain_10);
-    display.drawString(0, 30, DataSet.getState());
-    
+    display.drawString(0, 45, String(DataSet.getFANState()));
 }
 
 void drawTextFlowDemo() {
@@ -674,15 +635,17 @@ void drawTextAlignmentDemo() {
 
   // The coordinates define the left starting point of the text
   display.setTextAlignment(TEXT_ALIGN_LEFT);
-  display.drawString(0, 10 , DataSet.getDiviceChip());
+  display.drawString(0, 10 , String(DataSet.getDistance()));
 
   // The coordinates define the center of the text
   display.setTextAlignment(TEXT_ALIGN_CENTER);
-  display.drawString(64, 22, DataSet.getIp());
+  display.drawString(20, 10, String(DataSet.getTemperature()));
 
   // The coordinates define the right end of the text
   display.setTextAlignment(TEXT_ALIGN_RIGHT);
-  display.drawString(128, 33, DataSet.getServerState());
+  display.drawString(40, 10, String(DataSet.getVolt()));
+  display.setTextAlignment(TEXT_ALIGN_RIGHT);
+  display.drawString(60, 10, String(DataSet.getWaterquality()));
 }
 
 void drawRectDemo() {

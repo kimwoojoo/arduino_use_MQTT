@@ -8,12 +8,15 @@ void Data::PinSet()
   pinMode(RelayFanPin, OUTPUT);
 }
 
-
+float Data::getWaterquality()
+{
+  return Waterquality;
+}
 float Data::getDistance()
 {
   return distance;
 }
-int Data::getTlurbidity()
+float Data::getTlurbidity()
 {
   return tlurbidity;
 }
@@ -26,9 +29,9 @@ float Data::getTemperature()
   return temperature;
 }
 
-String Data::getState()
+String Data::getFANState()
 {
-  return State;
+  return FANState;
 }
 
 String Data::getIp()
@@ -36,9 +39,9 @@ String Data::getIp()
   return ip;
 }
 
-String Data::getServerState()
+String Data::getMotorState()
 {
-  return ServerState;
+  return MotorState;
 }
 String Data::getDiviceChip()
 {
