@@ -45,8 +45,8 @@ HTTPClient http; //get으로 Data가져오기
 AsyncWebServer server(80); 
 Adafruit_INA219 Sensor219; //전류전압센서
 String MSGPrint; //보내줄 MSG 저장
-#define MQTT_HOST IPAddress(115,68,228,55)
-#define MQTT_PORT 1883
+#define MQTT_HOST IPAddress(?,?,?,?)
+#define MQTT_PORT ?
 
 AsyncMqttClient mqttClient;
 TimerHandle_t mqttReconnectTimer;
