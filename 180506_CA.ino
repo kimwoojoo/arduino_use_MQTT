@@ -1,13 +1,22 @@
 #include "ESPHEADER.h"
 #include <pthread.h>
+
 uint64_t chipID; 
 //ESP32에서 센싱된 데이터들을 위한 값 
 Data DataSet;
 SSD1306Wire  display(0x3c, DataSet.OledSDAPin, DataSet.OledSCKPin);
+pthread_cond_t UPloadCond, DisplayCond; 
+pthread_mutex_t mutex,mutex2;
 OneWire ds(TempPin);
+AnalogPHMeter pHSensor(A0);
+unsigned int pHCalibrationValueAddress = 0;
+
 
 const char* ssid = "KimCGAC";
-const char* password =  "cgac5336";
+const char* password = "cgac5336";
+
+//const char* ssid = "esp32";
+//const char* password = "dnwndnwndnwn";
 const char* ca_cert = \
 "-----BEGIN CERTIFICATE-----\n"\
 "MIIDpzCCAo+gAwIBAgIJANgOMi/sVJVVMA0GCSqGSIb3DQEBDQUAMGoxFzAVBgNV\n"\
@@ -47,27 +56,27 @@ TimerHandle_t wifiReconnectTimer;
 void connectToWifi() {
   Serial.println("Connecting to Wi-Fi...");
   WiFi.begin(ssid, password);
-  
+  /*
   server.on("/index.html", HTTP_GET, [](AsyncWebServerRequest *request)
   {
     GetState();
     request->send(200, "HTTP/1.1 200 OK\nContent-type:text/html\n<meta charset=\"utf-8\">", HeadScript() +
     "<body>" +"칩 아이디 "+ DataSet.getDiviceChip() + "아이피 정보 " + DataSet.getIp() + "모터 상태 " + DataSet.getMotorState() + AutoSubmit() + formPrint() + "</body>");
   });
+  */
 /*
    server.on("/on", HTTP_GET, [](AsyncWebServerRequest *request)
   {
     request->send(200, "HTTP/1.1 200 OK\nContent-type:text/html\n<meta charset=\"utf-8\">", HeadScript() +
     "<body>" +" "+ DataSet.getDiviceChip() + "아이피 정보 " + DataSet.getIp() + "모터 상태 " + DataSet.getMotorState() + AutoSubmit() + formPrint() + "</body>");
   });*/
-  server.begin();
+
 }
 
 void connectToMqtt() {
   Serial.println("Connecting to MQTT...");
   mqttClient.connect();
 }
-
 
 void WiFiEvent(WiFiEvent_t event) {
     Serial.printf("[WiFi-event] event: %d\n", event);
@@ -77,6 +86,16 @@ void WiFiEvent(WiFiEvent_t event) {
         Serial.println("IP address: ");
         Serial.println(WiFi.localIP());
         connectToMqtt();
+        pthread_t UPload, Display;
+        pthread_mutex_init(&mutex, NULL);
+        pthread_cond_init(&UPloadCond, NULL);
+        pthread_cond_init(&DisplayCond, NULL);
+        pthread_create(&UPload, NULL, UPloadFunction, NULL);
+        pthread_create(&Display, NULL, DisplayFunction, NULL);
+        pthread_join(UPload, NULL);
+        pthread_join(Display, NULL);
+        pthread_cond_destroy(&UPload);
+        pthread_cond_destroy(&Display);
         break;
     case SYSTEM_EVENT_STA_DISCONNECTED:
         Serial.println("WiFi lost connection");
@@ -85,15 +104,12 @@ void WiFiEvent(WiFiEvent_t event) {
         break;
     }
 }
-
 char* string2char(String command){
     if(command.length()!=0){
         char *p = const_cast<char*>(command.c_str());
         return p;
     }
 }
-
-
 void onMqttConnect(bool sessionPresent) {
   Serial.println("Connected to MQTT.");
   Serial.print("Session present: ");
@@ -125,7 +141,15 @@ void onMqttUnsubscribe(uint16_t packetId) {
   Serial.print("  packetId: ");
   Serial.println(packetId);
 }
+void FANSwitch(int STATE)
+{
+  digitalWrite(DataSet.RelayFanPin, STATE);
+}
 
+void MOTORSwitch(int STATE)
+{
+  digitalWrite(DataSet.RelayPin, STATE);
+}
 void StateSwitch(String MQTTMESSAGE)
 {
   //MQTTMESSAGE.length();
@@ -158,15 +182,7 @@ void StateSwitch(String MQTTMESSAGE)
 
 }
 
-void FANSwitch(int STATE)
-{
-  digitalWrite(DataSet.RelayFanPin, STATE);
-}
 
-void MOTORSwitch(int STATE)
-{
-  digitalWrite(DataSet.RelayPin, STATE);
-}
 
 
 //MQTT MESSAGE 받는것 ^^
@@ -209,12 +225,11 @@ void onMqttPublish(uint16_t packetId) {
   Serial.println(packetId);
 }
 
-
 #define DEMO_DURATION 3000
-#define horizontal 30
-#define Vertical 17
-#define Height 22
-#define Calc (Height * Vertical * horizontal) / 1000000
+#define Depth 30 //깊이
+#define Height 24 //세로
+#define Width 24// 가로
+#define Calc (Depth * Height * Width)/10000
 int demoMode = 0;
 int counter = 1;
 //세로 17
@@ -222,7 +237,6 @@ int counter = 1;
 //가로 30
 //sda a0, scl a1 Sensor219.begin();
 typedef void (*Demo)(void);
-int DistanceCount = 0;
 /*
 void setup()
 {
@@ -265,7 +279,7 @@ void Send_MQTTMSG()
 {
   MSGPrint="{\"Distance\":";
   MSGPrint += "";
-  MSGPrint +=DataSet.getDistance();
+  MSGPrint +=DataSet.getWaterCm();
   MSGPrint +=",";
   MSGPrint +="\"Temp\":";
   MSGPrint +=DataSet.getTemperature();
@@ -301,6 +315,10 @@ void setup() {
   unsigned long long3 = (unsigned long)((chipID & 0x00000000FFFF));
   DataSet.DiviceChip = String(long1, HEX) + String(long2, HEX) + String(long3, HEX);
   DataSet.DiviceChip.toUpperCase(); 
+  
+  struct PHCalibrationValue pHCalibrationValue;
+  EEPROM.get(pHCalibrationValueAddress, pHCalibrationValue);
+  pHSensor.initialize(pHCalibrationValue);
   //GetState();
   mqttReconnectTimer = xTimerCreate("mqttTimer", pdMS_TO_TICKS(2000), pdFALSE, (void*)0, reinterpret_cast<TimerCallbackFunction_t>(connectToMqtt));
   wifiReconnectTimer = xTimerCreate("wifiTimer", pdMS_TO_TICKS(2000), pdFALSE, (void*)0, reinterpret_cast<TimerCallbackFunction_t>(connectToWifi));
@@ -314,14 +332,17 @@ void setup() {
   mqttClient.setServer(MQTT_HOST, MQTT_PORT);
   connectToWifi();
   adc1_config_width(ADC_WIDTH_12Bit);
-  adc1_config_channel_atten(ADC1_CHANNEL_0,ADC_ATTEN_11db);
+
   display.init();
   display.flipScreenVertically();
   display.setFont(ArialMT_Plain_10);
   display.setContrast(255);
   display.clear();
   DataSet.MotorState ="0";
-  DataSet.FANState = "0";
+  DataSet.FANState = "0"; 
+
+
+  
 }
 void GetState()
 {
@@ -467,43 +488,12 @@ String formPrint()
   HTMLPrint += "</div>";
   return HTMLPrint;
 }
-
-Demo demos[] = {drawFontFaceDemo, drawTextFlowDemo, drawTextAlignmentDemo, drawRectDemo, drawCircleDemo, drawProgressBarDemo, drawImageDemo};
+//Demo demos[] = {drawFontFaceDemo, drawTextFlowDemo, drawTextAlignmentDemo, drawRectDemo, drawCircleDemo, drawProgressBarDemo, drawImageDemo};
+Demo demos[] = {drawFontFaceDemo, drawTextAlignmentDemo};
 int demoLength = (sizeof(demos) / sizeof(Demo));
 long timeSinceLastModeSwitch = 0;
 void loop()
 {
-  display.clear();
-  demos[0]();
-  float Voltage;
-  //CurrentSensorPrint();
-  float TempRaTure = getTemp();
-  //float Tempdistance = getDistance();
-  DataSet.distance = getDistance();
-  int sensorValue = adc1_get_voltage(ADC1_CHANNEL_0);
-  Voltage = sensorValue * ( 5.0 / 1024.0) ; 
-  
-  DataSet.Volt = Voltage;
-
-  if(!(TempRaTure < -50 || TempRaTure > 100))
-  {
-    DataSet.temperature = TempRaTure;
-  }
-  display.setTextAlignment(TEXT_ALIGN_RIGHT);
-  display.drawString(10, 128, String(millis()));
-  // write the buffer to the display
-  display.display();
-  if (millis() - timeSinceLastModeSwitch > DEMO_DURATION) {
-    demoMode = (demoMode + 1)  % demoLength;
-    timeSinceLastModeSwitch = millis();
-  }
-  //물 높이(liter) 재기 
-  //DataSet.distance = floor(Calc * Tempdistance * 10);
-  //DataSet.distance = getDistance();
-  
-  Send_MQTTMSG();
-  delay(5000);
-  
 
 //DataSet.MotorState 모터 동작 상태 0이면 OFF
 //DataSet.State 수위 상태 0 이면 저수위
@@ -525,6 +515,7 @@ void loop()
   //{
   //  digitalWrite(DataSet.RelayPin, LOW);               // GET /H turns the Motor on
  // }
+
 }
 
 /*
@@ -606,48 +597,130 @@ float getTemp()
 }
 
 
+/////////////////////////////////////////////////////////
+//                     PthreadStart                    //
+/////////////////////////////////////////////////////////
+void *UPloadFunction(void *arg)
+{
+  int liters;
+  float WaterCm;
+  while(1)
+  {
+    adc1_config_channel_atten(ADC1_CHANNEL_5,ADC_ATTEN_11db); //채널 5번은 gpio 33
+    float Voltage;
+    //CurrentSensorPrint();
+    float TempRaTure = getTemp();
+    //float Tempdistance = getDistance();
+    DataSet.distance = getDistance(); //물과의 거리
+
+    
+    //물높이는 세로 - 거리 + 10(초음파 센서 측정값 mm)
+    WaterCm = Height - DataSet.distance + 10; //물의 높이
+    DataSet.WaterCm = WaterCm;
+    liters = floor(Calc * WaterCm);
+    DataSet.WaterLiters = liters;
+    Serial.println(DataSet.getWaterCm());
+    Serial.println(DataSet.getWaterLiters());
+    int sensorValue = adc1_get_voltage(ADC1_CHANNEL_5);
+    Voltage = sensorValue * ( 5.0 / 1024.0) ; 
+    DataSet.Volt = Voltage;
+    DataSet.Waterquality = pHSensor.singleReading().getpH();
+    if(!(TempRaTure < -50 || TempRaTure > 100))
+    {
+      DataSet.temperature = TempRaTure;
+    }
+    //물 높이(liter) 재기 
+    //DataSet.distance = floor(Calc * Tempdistance * 10);
+    //DataSet.distance = getDistance();
+    Send_MQTTMSG();
+    delay(10000);
+  }
+  
+
+}
+
+void *DisplayFunction(void *arg)
+{
+  while(1)
+  {
+    display.clear();
+    demos[demoMode]();
+    display.setTextAlignment(TEXT_ALIGN_RIGHT);
+    display.drawString(10, 128, String(millis()));
+    // write the buffer to the display
+    display.display();
+    if (millis() - timeSinceLastModeSwitch > DEMO_DURATION) {
+    demoMode = (demoMode + 1)  % demoLength;
+    timeSinceLastModeSwitch = millis();
+    }
+  }
+  delay(1000);
+}
+/////////////////////////////////////////////////////////
+//                     PthreadEnd                      //
+/////////////////////////////////////////////////////////
+
+
+
+
+
 void drawFontFaceDemo() {
     // Font Demo1
     // create more fonts at http://oleddisplay.squix.ch/
     display.setTextAlignment(TEXT_ALIGN_LEFT);
     display.setFont(ArialMT_Plain_10);
-    display.drawString(0, 0, WiFi.localIP().toString() );
+    display.drawString(0, 0, "IP:"+WiFi.localIP().toString() );
     display.setFont(ArialMT_Plain_10);
     display.drawString(0, 5, DataSet.getIp());
     display.setFont(ArialMT_Plain_10);
-    display.drawString(0, 25, DataSet.getMotorState());
+    display.drawString(0, 25, "ChipID:"+ DataSet.getDiviceChip());
     display.setFont(ArialMT_Plain_10);
-    display.drawString(0, 35, DataSet.getDiviceChip());
+    if(DataSet.getMotorState().compareTo("1")==0)
+    {
+      display.drawString(0, 35,"MOTOR STATE : ON");
+    }
+    else
+    {
+      display.drawString(0, 35,"MOTOR STATE : OFF");
+    }
     display.setFont(ArialMT_Plain_10);
-    display.drawString(0, 45, String(DataSet.getFANState()));
-}
+    if(DataSet.getFANState().compareTo("1")==0)
+    {
+      display.drawString(0, 45,"FAN STATE : ON");
+    }
+    else
+    {
+      display.drawString(0, 45,"FAN STATE : OFF");
+    }
 
+}
+/*
 void drawTextFlowDemo() {
     display.setFont(ArialMT_Plain_10);
     display.setTextAlignment(TEXT_ALIGN_LEFT);
-    display.drawStringMaxWidth(0, 0, 128,
-      "Lorem ipsum\n dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore." );
+    display.drawStringMaxWidth(0, 0, 128,"HI" );
 }
-
+*/
 void drawTextAlignmentDemo() {
     // Text alignment demo
   display.setFont(ArialMT_Plain_10);
 
   // The coordinates define the left starting point of the text
   display.setTextAlignment(TEXT_ALIGN_LEFT);
-  display.drawString(0, 10 , String(DataSet.getDistance()));
-
+  display.drawString(0, 0 ,"Water Distance : "+String(DataSet.getDistance()));
+  display.drawString(0, 10 ,"Water Liters : "+String(DataSet.getWaterLiters()));
+  display.drawString(0, 20 ,"Water Cm: " + String(DataSet.getWaterCm()));
   // The coordinates define the center of the text
-  display.setTextAlignment(TEXT_ALIGN_CENTER);
-  display.drawString(20, 10, String(DataSet.getTemperature()));
+  display.setTextAlignment(TEXT_ALIGN_LEFT);
+  display.drawString(0, 30, "Temperature : "+String(DataSet.getTemperature()));
 
   // The coordinates define the right end of the text
-  display.setTextAlignment(TEXT_ALIGN_RIGHT);
-  display.drawString(40, 10, String(DataSet.getVolt()));
-  display.setTextAlignment(TEXT_ALIGN_RIGHT);
-  display.drawString(60, 10, String(DataSet.getWaterquality()));
+  display.setTextAlignment(TEXT_ALIGN_LEFT);
+  display.drawString(0, 40, "Tudibity : "+String(DataSet.getVolt()));
+  display.setTextAlignment(TEXT_ALIGN_LEFT);
+  display.drawString(0, 50, "Water Quality : " +String(DataSet.getWaterquality()));
 }
-
+/*
 void drawRectDemo() {
       // Draw a pixel at given position
     for (int i = 0; i < 10; i++) {
@@ -692,6 +765,6 @@ void drawImageDemo() {
     // on how to create xbm files
     display.drawXbm(34, 14, WiFi_Logo_width, WiFi_Logo_height, WiFi_Logo_bits);
 }
-
+*/
 
 

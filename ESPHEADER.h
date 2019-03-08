@@ -16,6 +16,8 @@ extern "C" {
   #include "freertos/FreeRTOS.h"
   #include "freertos/timers.h"
 }
+#include <AnalogPHMeter.h>
+#include <EEPROM.h>
 #include <ESPmDNS.h>
 #include <PubSubClient.h>
 #include <AsyncMqttClient.h>

@@ -4,12 +4,14 @@
 const int TempPin = 5;
 
 class Data{
+   
   public :
   float distance;
   float tlurbidity;
   float Volt;
   float temperature;
   float Waterquality;
+  float WaterCm;
   int trigPin;
   int echoPin;
   int RelayPin;
@@ -23,13 +25,14 @@ class Data{
   String MotorState;
   int VoltageSDAPin;
   int VoltageSCLPin;
+  int WaterLiters;
   public :
   Data()
   {
      trigPin=26;
      echoPin=27;
      RelayPin = 17;
-     TurbidityPin = 32;
+     TurbidityPin = 33;
      OledSDAPin = 21;
      OledSCKPin = 22;
      VoltageSDAPin = 23;
@@ -41,11 +44,13 @@ class Data{
   }
   
   void PinSet();
+  float getWaterCm();
   float getDistance();
   float getTlurbidity();
   float getVolt();
   float getWaterquality();
   float getTemperature();
+  int getWaterLiters();
   String getFANState();
   String getIp();
   String getMotorState();

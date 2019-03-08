@@ -8,6 +8,14 @@ void Data::PinSet()
   pinMode(RelayFanPin, OUTPUT);
 }
 
+int Data::getWaterLiters()
+{
+  return WaterLiters;
+}
+float Data::getWaterCm()
+{
+  return WaterCm;
+}
 float Data::getWaterquality()
 {
   return Waterquality;
